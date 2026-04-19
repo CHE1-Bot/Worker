@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package worker.v1;
+
+option go_package = "github.com/che1/worker/gen/workerpb;workerpb";
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+service Tasks {
+  rpc Create(CreateTaskRequest) returns (Task);
+  rpc Get(GetTaskRequest) returns (Task);
+  rpc List(ListTasksRequest) returns (ListTasksResponse);
+  rpc Complete(CompleteTaskRequest) returns (Task);
+}
+
+message Task {
+  string id = 1;
+  string kind = 2;
+  string status = 3;
+  google.protobuf.Struct input = 4;
+  google.protobuf.Struct result = 5;
+  string error = 6;
+  string created_by = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+message CreateTaskRequest {
+  string kind = 1;
+  google.protobuf.Struct input = 2;
+  string created_by = 3;
+}
+
+message GetTaskRequest { string id = 1; }
+
+message ListTasksRequest {
+  string status = 1;
+  int32 limit = 2;
+}
+
+message ListTasksResponse { repeated Task items = 1; }
+
+message CompleteTaskRequest {
+  string id = 1;
+  google.protobuf.Struct result = 2;
+  string error = 3;
+}
