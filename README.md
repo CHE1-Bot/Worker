@@ -48,12 +48,18 @@ frontend, other services) and pushes real-time events to the frontend via
 **REST** (`HTTP_LISTEN_ADDR`, default `:8080`):
 
 - `GET  /healthz`
-- `POST /api/v1/tasks` — create task
+- `POST /api/v1/tasks` — create task. Accepts two payload shapes:
+  - Native: `{"kind": "...", "input": {...}, "created_by": "..."}`
+  - Dashboard BFF: `{"event": "...", "guild_id": "...", "payload": {...}}` —
+    `event` is stored as `kind`, `{guild_id, payload}` as `input`,
+    `created_by` defaults to `"dashboard"`.
 - `GET  /api/v1/tasks?status=&limit=` — list tasks
 - `GET  /api/v1/tasks/{id}` — get task
 - `POST /api/v1/tasks/{id}/complete` — mark task done/failed
 
 All `/api/v1/*` require `Authorization: Bearer $INBOUND_API_KEY`.
+
+CORS is enforced against `DASHBOARD_ALLOWED_ORIGINS`.
 
 **gRPC** (`GRPC_LISTEN_ADDR`, default `:9090`):
 
@@ -69,6 +75,33 @@ All `/api/v1/*` require `Authorization: Bearer $INBOUND_API_KEY`.
 
 Copy `.env.example` to `.env`. `DATABASE_URL` is required; everything else
 has sensible defaults.
+
+## CHE1 Dashboard integration
+
+This Worker is paired with the [CHE1 Dashboard](https://github.com/CHE1-Bot/Dashboard)
+(Svelte frontend + Go BFF).
+
+**Traffic shape:**
+
+- Browser (Svelte, `:5173`) → Dashboard BFF (Go, `:8080`) → Worker (this service)
+- For action events (tickets, moderation, giveaways), the Dashboard BFF does
+  `POST {WORKER_URL}/api/v1/tasks` with
+  `{"event", "guild_id", "payload"}` and `Authorization: Bearer {WORKER_API_KEY}`.
+  Set the Dashboard's `WORKER_URL` to this Worker's base URL, and its
+  `WORKER_API_KEY` equal to this Worker's `INBOUND_API_KEY`.
+- The Dashboard frontend can also connect directly to the Worker's WebSocket
+  at `ws://…:8090/ws` — origins are checked against `DASHBOARD_ALLOWED_ORIGINS`.
+
+**Port collision in local dev:** both the Dashboard BFF and this Worker
+default to `:8080`. When running both on one host, change one of them
+(e.g. `HTTP_LISTEN_ADDR=:8081` here, then point the Dashboard at
+`WORKER_URL=http://localhost:8081`).
+
+**Outbound calls to the Dashboard** are handled by
+[internal/dashboard/client.go](internal/dashboard/client.go). Set
+`DASHBOARD_BASE_URL` + `DASHBOARD_API_KEY` to enable; the client is wired
+in [cmd/worker/main.go](cmd/worker/main.go) and ready for callers to add
+specific calls as the Dashboard's API surface grows.
 
 ## Run
 

@@ -12,16 +12,12 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin:     func(r *http.Request) bool { return true },
-}
-
 type Hub struct {
-	mu      sync.RWMutex
-	clients map[*client]struct{}
-	log     *slog.Logger
+	mu             sync.RWMutex
+	clients        map[*client]struct{}
+	allowedOrigins map[string]struct{}
+	upgrader       websocket.Upgrader
+	log            *slog.Logger
 }
 
 type client struct {
@@ -29,8 +25,34 @@ type client struct {
 	send chan []byte
 }
 
-func NewHub(log *slog.Logger) *Hub {
-	return &Hub{clients: make(map[*client]struct{}), log: log.With("component", "ws-hub")}
+func NewHub(allowedOrigins []string, log *slog.Logger) *Hub {
+	set := make(map[string]struct{}, len(allowedOrigins))
+	for _, o := range allowedOrigins {
+		set[o] = struct{}{}
+	}
+	h := &Hub{
+		clients:        make(map[*client]struct{}),
+		allowedOrigins: set,
+		log:            log.With("component", "ws-hub"),
+	}
+	h.upgrader = websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin:     h.checkOrigin,
+	}
+	return h
+}
+
+func (h *Hub) checkOrigin(r *http.Request) bool {
+	if len(h.allowedOrigins) == 0 {
+		return true
+	}
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	_, ok := h.allowedOrigins[origin]
+	return ok
 }
 
 func (h *Hub) Broadcast(evt models.Event) {
@@ -69,7 +91,7 @@ func (h *Hub) remove(c *client) {
 
 func (h *Hub) Handler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
+		conn, err := h.upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			h.log.Warn("upgrade failed", "err", err)
 			return

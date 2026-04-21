@@ -15,13 +15,23 @@ import (
 )
 
 type Server struct {
-	tasks  *service.Tasks
-	apiKey string
-	log    *slog.Logger
+	tasks          *service.Tasks
+	apiKey         string
+	allowedOrigins map[string]struct{}
+	log            *slog.Logger
 }
 
-func NewServer(tasks *service.Tasks, apiKey string, log *slog.Logger) *Server {
-	return &Server{tasks: tasks, apiKey: apiKey, log: log.With("component", "http")}
+func NewServer(tasks *service.Tasks, apiKey string, allowedOrigins []string, log *slog.Logger) *Server {
+	set := make(map[string]struct{}, len(allowedOrigins))
+	for _, o := range allowedOrigins {
+		set[o] = struct{}{}
+	}
+	return &Server{
+		tasks:          tasks,
+		apiKey:         apiKey,
+		allowedOrigins: set,
+		log:            log.With("component", "http"),
+	}
 }
 
 func (s *Server) Serve(ctx context.Context, addr string) error {
@@ -34,7 +44,7 @@ func (s *Server) Serve(ctx context.Context, addr string) error {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           s.logMiddleware(mux),
+		Handler:           s.corsMiddleware(s.logMiddleware(mux)),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -67,6 +77,27 @@ func (s *Server) auth(next http.Handler) http.Handler {
 	})
 }
 
+func (s *Server) corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			if _, ok := s.allowedOrigins[origin]; ok {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Vary", "Origin")
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+				w.Header().Set("Access-Control-Max-Age", "600")
+			}
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) logMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -81,11 +112,34 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
-	var req models.CreateTaskRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	var raw struct {
+		Kind      string         `json:"kind"`
+		Input     map[string]any `json:"input"`
+		CreatedBy string         `json:"created_by"`
+
+		// Dashboard BFF shape: POST /api/v1/tasks with {event, guild_id, payload}.
+		Event   string         `json:"event"`
+		GuildID string         `json:"guild_id"`
+		Payload map[string]any `json:"payload"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
+
+	req := models.CreateTaskRequest{
+		Kind:      raw.Kind,
+		Input:     raw.Input,
+		CreatedBy: raw.CreatedBy,
+	}
+	if raw.Event != "" {
+		req.Kind = raw.Event
+		req.Input = map[string]any{"guild_id": raw.GuildID, "payload": raw.Payload}
+		if req.CreatedBy == "" {
+			req.CreatedBy = "dashboard"
+		}
+	}
+
 	t, err := s.tasks.Create(r.Context(), req)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())

@@ -4,20 +4,22 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
 )
 
 type Config struct {
-	HTTP     HTTPConfig
-	GRPC     GRPCConfig
-	WS       WSConfig
-	Database DatabaseConfig
-	Redis    RedisConfig
-	External ExternalConfig
-	Inbound  InboundConfig
-	Log      LogConfig
+	HTTP      HTTPConfig
+	GRPC      GRPCConfig
+	WS        WSConfig
+	Database  DatabaseConfig
+	Redis     RedisConfig
+	External  ExternalConfig
+	Dashboard DashboardConfig
+	Inbound   InboundConfig
+	Log       LogConfig
 }
 
 type HTTPConfig struct {
@@ -49,6 +51,13 @@ type ExternalConfig struct {
 	BaseURL string
 	APIKey  string
 	Timeout time.Duration
+}
+
+type DashboardConfig struct {
+	BaseURL        string
+	APIKey         string
+	Timeout        time.Duration
+	AllowedOrigins []string
 }
 
 type InboundConfig struct {
@@ -85,6 +94,12 @@ func Load() (*Config, error) {
 			APIKey:  os.Getenv("EXTERNAL_API_KEY"),
 			Timeout: time.Duration(getEnvInt("EXTERNAL_TIMEOUT_SECONDS", 10)) * time.Second,
 		},
+		Dashboard: DashboardConfig{
+			BaseURL:        getEnv("DASHBOARD_BASE_URL", ""),
+			APIKey:         os.Getenv("DASHBOARD_API_KEY"),
+			Timeout:        time.Duration(getEnvInt("DASHBOARD_TIMEOUT_SECONDS", 10)) * time.Second,
+			AllowedOrigins: splitAndTrim(getEnv("DASHBOARD_ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:8080")),
+		},
 		Inbound: InboundConfig{APIKey: os.Getenv("INBOUND_API_KEY")},
 		Log: LogConfig{
 			Level:  getEnv("LOG_LEVEL", "info"),
@@ -112,4 +127,18 @@ func getEnvInt(key string, fallback int) int {
 		}
 	}
 	return fallback
+}
+
+func splitAndTrim(csv string) []string {
+	if csv == "" {
+		return nil
+	}
+	parts := strings.Split(csv, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

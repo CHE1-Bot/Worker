@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/che1/worker/internal/config"
+	"github.com/che1/worker/internal/dashboard"
 	"github.com/che1/worker/internal/db"
 	"github.com/che1/worker/internal/external"
 	"github.com/che1/worker/internal/grpcapi"
@@ -63,13 +64,21 @@ func main() {
 	// External API client (available for future handlers).
 	_ = external.NewClient(cfg.External.BaseURL, cfg.External.APIKey, cfg.External.Timeout, log)
 
-	// WebSocket hub for frontend.
-	hub := ws.NewHub(log)
+	// Dashboard BFF client (outbound calls to the CHE1 Dashboard).
+	dashClient := dashboard.NewClient(cfg.Dashboard.BaseURL, cfg.Dashboard.APIKey, cfg.Dashboard.Timeout, log)
+	if dashClient.Configured() {
+		log.Info("dashboard client configured", "base_url", cfg.Dashboard.BaseURL)
+	}
+	_ = dashClient
+
+	// WebSocket hub for frontend. Browser connections are validated against
+	// the Dashboard's allowed origins.
+	hub := ws.NewHub(cfg.Dashboard.AllowedOrigins, log)
 
 	// Business-logic layer wired to both REST and gRPC.
 	tasks := service.NewTasks(taskRepo, pub, hub, log)
 
-	httpSrv := httpapi.NewServer(tasks, cfg.Inbound.APIKey, log)
+	httpSrv := httpapi.NewServer(tasks, cfg.Inbound.APIKey, cfg.Dashboard.AllowedOrigins, log)
 	grpcSrv := grpcapi.NewServer(tasks, cfg.Inbound.APIKey, log)
 
 	errCh := make(chan error, 3)
