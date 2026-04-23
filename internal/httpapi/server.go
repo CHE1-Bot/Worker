@@ -176,14 +176,14 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 func (s *Server) completeTask(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var body struct {
-		Result map[string]any `json:"result"`
+		Output map[string]any `json:"output"`
 		Error  string         `json:"error"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	if err := s.tasks.Complete(r.Context(), id, body.Result, body.Error); err != nil {
+	if err := s.tasks.Complete(r.Context(), id, body.Output, body.Error); err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "not found")
 			return

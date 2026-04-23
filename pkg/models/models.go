@@ -24,7 +24,7 @@ type TaskStatus string
 const (
 	TaskStatusPending   TaskStatus = "pending"
 	TaskStatusRunning   TaskStatus = "running"
-	TaskStatusSucceeded TaskStatus = "succeeded"
+	TaskStatusSucceeded TaskStatus = "success"
 	TaskStatusFailed    TaskStatus = "failed"
 )
 
@@ -33,7 +33,7 @@ type Task struct {
 	Kind      string         `json:"kind"`
 	Status    TaskStatus     `json:"status"`
 	Input     map[string]any `json:"input,omitempty"`
-	Result    map[string]any `json:"result,omitempty"`
+	Result    map[string]any `json:"output,omitempty"`
 	Error     string         `json:"error,omitempty"`
 	CreatedBy string         `json:"created_by,omitempty"`
 	CreatedAt time.Time      `json:"created_at"`

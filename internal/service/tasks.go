@@ -41,10 +41,16 @@ func (s *Tasks) Create(ctx context.Context, req models.CreateTaskRequest) (*mode
 		return nil, fmt.Errorf("persist task: %w", err)
 	}
 	s.emit(models.Event{
-		ID:        t.ID,
-		Type:      models.EventTaskCreated,
-		Subject:   t.ID,
-		Payload:   map[string]any{"kind": t.Kind, "created_by": t.CreatedBy},
+		ID:      t.ID,
+		Type:    models.EventTaskCreated,
+		Subject: t.ID,
+		Payload: map[string]any{
+			"id":         t.ID,
+			"kind":       t.Kind,
+			"status":     t.Status,
+			"input":      t.Input,
+			"created_by": t.CreatedBy,
+		},
 		Timestamp: time.Now().UTC(),
 	})
 	return t, nil
