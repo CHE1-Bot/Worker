@@ -1,0 +1,15 @@
+.git
+.github
+.gitignore
+.env
+.env.*
+*.exe
+bin/
+dist/
+gen/
+vendor/
+.idea/
+.vscode/
+.claude/
+README.md
+LICENSE

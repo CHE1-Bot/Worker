@@ -66,18 +66,29 @@ func (s *Tasks) List(ctx context.Context, status string, limit int) ([]models.Ta
 
 func (s *Tasks) Complete(ctx context.Context, id string, result map[string]any, errMsg string) error {
 	status := models.TaskStatusSucceeded
-	evtType := models.EventTaskCompleted
 	if errMsg != "" {
 		status = models.TaskStatusFailed
 	}
 	if err := s.repo.UpdateStatus(ctx, id, status, result, errMsg); err != nil {
 		return err
 	}
+	t, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return err
+	}
 	s.emit(models.Event{
-		ID:        id,
-		Type:      evtType,
-		Subject:   id,
-		Payload:   map[string]any{"status": status, "result": result, "error": errMsg},
+		ID:      t.ID,
+		Type:    models.EventTaskCompleted,
+		Subject: t.ID,
+		Payload: map[string]any{
+			"id":         t.ID,
+			"kind":       t.Kind,
+			"status":     t.Status,
+			"input":      t.Input,
+			"output":     t.Result,
+			"error":      t.Error,
+			"created_by": t.CreatedBy,
+		},
 		Timestamp: time.Now().UTC(),
 	})
 	return nil

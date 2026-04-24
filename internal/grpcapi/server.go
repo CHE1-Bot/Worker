@@ -42,8 +42,10 @@ func (s *Server) Serve(ctx context.Context, addr string) error {
 	healthpb.RegisterHealthServer(s.srv, hs)
 	reflection.Register(s.srv)
 
-	// Register your generated service here once you run `make proto`:
-	//   workerpb.RegisterTasksServer(s.srv, newTasksServer(s.tasks))
+	// Tasks service is registered only when built with `-tags grpcgen`
+	// (after `make proto`). Without the tag this is a no-op; Health +
+	// reflection still work. See tasks_server.go / tasks_server_stub.go.
+	registerTasks(s.srv, s.tasks)
 
 	go func() {
 		<-ctx.Done()

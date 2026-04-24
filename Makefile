@@ -1,4 +1,4 @@
-.PHONY: run build tidy test proto
+.PHONY: run build build-grpc tidy test proto proto-tools
 
 run:
 	go run ./cmd/worker
@@ -6,14 +6,26 @@ run:
 build:
 	go build -o bin/worker ./cmd/worker
 
+# Build with the Tasks gRPC service registered. Requires `make proto` first.
+build-grpc:
+	go build -tags grpcgen -o bin/worker ./cmd/worker
+
 tidy:
 	go mod tidy
 
 test:
 	go test ./...
 
-# Generate Go stubs from proto/. Requires protoc + protoc-gen-go + protoc-gen-go-grpc.
+# Install the Go protoc plugins into $GOBIN (protoc itself must be on PATH).
+proto-tools:
+	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+# Generate Go stubs into gen/workerpb/ (matches the proto's go_package option).
+# Requires protoc + protoc-gen-go + protoc-gen-go-grpc on PATH.
 proto:
-	protoc --go_out=. --go_opt=paths=source_relative \
-	       --go-grpc_out=. --go-grpc_opt=paths=source_relative \
-	       proto/worker.proto
+	mkdir -p gen/workerpb
+	protoc -I proto \
+	       --go_out=gen/workerpb --go_opt=paths=source_relative \
+	       --go-grpc_out=gen/workerpb --go-grpc_opt=paths=source_relative \
+	       worker.proto

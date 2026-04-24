@@ -14,20 +14,27 @@ import (
 	"github.com/che1/worker/pkg/models"
 )
 
+// DBPinger is the minimal surface needed by /readyz.
+type DBPinger interface {
+	Ping(ctx context.Context) error
+}
+
 type Server struct {
 	tasks          *service.Tasks
+	db             DBPinger
 	apiKey         string
 	allowedOrigins map[string]struct{}
 	log            *slog.Logger
 }
 
-func NewServer(tasks *service.Tasks, apiKey string, allowedOrigins []string, log *slog.Logger) *Server {
+func NewServer(tasks *service.Tasks, dbPinger DBPinger, apiKey string, allowedOrigins []string, log *slog.Logger) *Server {
 	set := make(map[string]struct{}, len(allowedOrigins))
 	for _, o := range allowedOrigins {
 		set[o] = struct{}{}
 	}
 	return &Server{
 		tasks:          tasks,
+		db:             dbPinger,
 		apiKey:         apiKey,
 		allowedOrigins: set,
 		log:            log.With("component", "http"),
@@ -37,6 +44,7 @@ func NewServer(tasks *service.Tasks, apiKey string, allowedOrigins []string, log
 func (s *Server) Serve(ctx context.Context, addr string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
+	mux.HandleFunc("GET /readyz", s.ready)
 	mux.Handle("POST /api/v1/tasks", s.auth(http.HandlerFunc(s.createTask)))
 	mux.Handle("GET /api/v1/tasks", s.auth(http.HandlerFunc(s.listTasks)))
 	mux.Handle("GET /api/v1/tasks/{id}", s.auth(http.HandlerFunc(s.getTask)))
@@ -107,6 +115,22 @@ func (s *Server) logMiddleware(next http.Handler) http.Handler {
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ok"))
+}
+
+func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
+	if s.db == nil {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	if err := s.db.Ping(ctx); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "db unavailable")
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok"))
 }

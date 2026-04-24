@@ -78,7 +78,7 @@ func main() {
 	// Business-logic layer wired to both REST and gRPC.
 	tasks := service.NewTasks(taskRepo, pub, hub, log)
 
-	httpSrv := httpapi.NewServer(tasks, cfg.Inbound.APIKey, cfg.Dashboard.AllowedOrigins, log)
+	httpSrv := httpapi.NewServer(tasks, pool, cfg.Inbound.APIKey, cfg.Dashboard.AllowedOrigins, log)
 	grpcSrv := grpcapi.NewServer(tasks, cfg.Inbound.APIKey, log)
 
 	errCh := make(chan error, 3)
