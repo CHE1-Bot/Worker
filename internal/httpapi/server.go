@@ -19,15 +19,25 @@ type DBPinger interface {
 	Ping(ctx context.Context) error
 }
 
+// Meta describes the runtime knobs the Dashboard SPA introspects via /api/meta.
+// Mirrors the Dashboard's GET /api/meta response shape.
+type Meta struct {
+	AppEnv              string
+	Version             string
+	RedisEnabled        bool
+	DashboardConfigured bool
+}
+
 type Server struct {
 	tasks          *service.Tasks
 	db             DBPinger
+	meta           Meta
 	apiKey         string
 	allowedOrigins map[string]struct{}
 	log            *slog.Logger
 }
 
-func NewServer(tasks *service.Tasks, dbPinger DBPinger, apiKey string, allowedOrigins []string, log *slog.Logger) *Server {
+func NewServer(tasks *service.Tasks, dbPinger DBPinger, meta Meta, apiKey string, allowedOrigins []string, log *slog.Logger) *Server {
 	set := make(map[string]struct{}, len(allowedOrigins))
 	for _, o := range allowedOrigins {
 		set[o] = struct{}{}
@@ -35,6 +45,7 @@ func NewServer(tasks *service.Tasks, dbPinger DBPinger, apiKey string, allowedOr
 	return &Server{
 		tasks:          tasks,
 		db:             dbPinger,
+		meta:           meta,
 		apiKey:         apiKey,
 		allowedOrigins: set,
 		log:            log.With("component", "http"),
@@ -45,6 +56,7 @@ func (s *Server) Serve(ctx context.Context, addr string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /readyz", s.ready)
+	mux.HandleFunc("GET /api/meta", s.metaHandler)
 	mux.Handle("POST /api/v1/tasks", s.auth(http.HandlerFunc(s.createTask)))
 	mux.Handle("GET /api/v1/tasks", s.auth(http.HandlerFunc(s.listTasks)))
 	mux.Handle("GET /api/v1/tasks/{id}", s.auth(http.HandlerFunc(s.getTask)))
@@ -133,6 +145,26 @@ func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok"))
+}
+
+// metaHandler mirrors the Dashboard's GET /api/meta. The SPA hits this to
+// render a status badge / introspect deployment state.
+func (s *Server) metaHandler(w http.ResponseWriter, r *http.Request) {
+	dbEnabled := false
+	if s.db != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 1*time.Second)
+		defer cancel()
+		dbEnabled = s.db.Ping(ctx) == nil
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"service":              "worker",
+		"app_env":              s.meta.AppEnv,
+		"version":              s.meta.Version,
+		"db_enabled":           dbEnabled,
+		"redis_enabled":        s.meta.RedisEnabled,
+		"dashboard_configured": s.meta.DashboardConfigured,
+		"server_time":          time.Now().UTC().Format(time.RFC3339),
+	})
 }
 
 func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {

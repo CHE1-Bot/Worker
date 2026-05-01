@@ -19,11 +19,12 @@ COPY . .
 
 # Generate worker.v1 stubs and build with the grpcgen tag so the Tasks
 # service is registered alongside Health + reflection.
+ARG BUILD_VERSION=docker
 RUN make proto && \
     CGO_ENABLED=0 GOOS=linux go build \
         -tags grpcgen \
         -trimpath \
-        -ldflags "-s -w" \
+        -ldflags "-s -w -X main.buildVersion=${BUILD_VERSION}" \
         -o /out/worker ./cmd/worker
 
 # Runtime: distroless nonroot, matches the CHE1 Dashboard image family.

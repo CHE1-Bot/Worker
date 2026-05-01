@@ -37,7 +37,10 @@ jobs:
         run: go test -tags grpcgen ./...
 
       - name: Build
-        run: go build -tags grpcgen -trimpath -ldflags "-s -w" -o bin/worker ./cmd/worker
+        run: |
+          go build -tags grpcgen -trimpath \
+            -ldflags "-s -w -X main.buildVersion=${{ github.sha }}" \
+            -o bin/worker ./cmd/worker
 
   docker:
     needs: build
@@ -63,6 +66,8 @@ jobs:
         with:
           context: .
           push: true
+          build-args: |
+            BUILD_VERSION=${{ github.sha }}
           tags: |
             ghcr.io/${{ github.repository }}:latest
             ghcr.io/${{ github.repository }}:${{ github.sha }}

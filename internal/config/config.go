@@ -11,6 +11,7 @@ import (
 )
 
 type Config struct {
+	AppEnv    string
 	HTTP      HTTPConfig
 	GRPC      GRPCConfig
 	WS        WSConfig
@@ -73,7 +74,8 @@ func Load() (*Config, error) {
 	_ = godotenv.Load()
 
 	cfg := &Config{
-		HTTP: HTTPConfig{ListenAddr: getEnv("HTTP_LISTEN_ADDR", ":8080")},
+		AppEnv: strings.ToLower(getEnv("APP_ENV", "production")),
+		HTTP:   HTTPConfig{ListenAddr: getEnv("HTTP_LISTEN_ADDR", ":8081")},
 		GRPC: GRPCConfig{ListenAddr: getEnv("GRPC_LISTEN_ADDR", ":9090")},
 		WS: WSConfig{
 			ListenAddr: getEnv("WS_LISTEN_ADDR", ":8090"),

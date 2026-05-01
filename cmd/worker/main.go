@@ -21,6 +21,11 @@ import (
 	"github.com/che1/worker/internal/ws"
 )
 
+// buildVersion is stamped at build time via
+// `-ldflags "-X main.buildVersion=$(git rev-parse --short HEAD)"` and surfaced
+// through GET /api/meta. Defaults to "dev" for local `go run`.
+var buildVersion = "dev"
+
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -78,7 +83,13 @@ func main() {
 	// Business-logic layer wired to both REST and gRPC.
 	tasks := service.NewTasks(taskRepo, pub, hub, log)
 
-	httpSrv := httpapi.NewServer(tasks, pool, cfg.Inbound.APIKey, cfg.Dashboard.AllowedOrigins, log)
+	meta := httpapi.Meta{
+		AppEnv:              cfg.AppEnv,
+		Version:             buildVersion,
+		RedisEnabled:        pub != nil,
+		DashboardConfigured: dashClient.Configured(),
+	}
+	httpSrv := httpapi.NewServer(tasks, pool, meta, cfg.Inbound.APIKey, cfg.Dashboard.AllowedOrigins, log)
 	grpcSrv := grpcapi.NewServer(tasks, cfg.Inbound.APIKey, log)
 
 	errCh := make(chan error, 3)

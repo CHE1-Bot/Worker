@@ -54,9 +54,12 @@ below.
 
 ## Endpoints
 
-**REST** (`HTTP_LISTEN_ADDR`, default `:8080`):
+**REST** (`HTTP_LISTEN_ADDR`, default `:8081`):
 
-- `GET  /healthz`
+- `GET  /healthz` — liveness, always `ok`.
+- `GET  /readyz` — readiness, pings Postgres; `503` while DB is unavailable.
+- `GET  /api/meta` — `{service, app_env, version, db_enabled, redis_enabled, dashboard_configured, server_time}`.
+  Mirrors the Dashboard's `/api/meta` so the SPA can introspect Worker state.
 - `POST /api/v1/tasks` — create task. Accepts two payload shapes:
   - Native: `{"kind": "...", "input": {...}, "created_by": "..."}`
   - Dashboard BFF: `{"event": "...", "guild_id": "...", "payload": {...}}` —
@@ -107,6 +110,33 @@ three `.env` files.
   `Authorization: Bearer {WORKER_API_KEY}`.
 - Set the Dashboard's `WORKER_URL` to this Worker's REST base URL and its
   `WORKER_API_KEY` equal to this Worker's `INBOUND_API_KEY`.
+
+### Task-kind catalog
+
+The Worker is kind-agnostic: it persists every `kind` opaquely and broadcasts
+it to subscribers. The kinds in active use across CHE1 are:
+
+| Kind                     | Sent by   | Consumed by | Payload                                                                   |
+|--------------------------|-----------|-------------|---------------------------------------------------------------------------|
+| `send_message`           | Dashboard | Bot         | channel + content                                                         |
+| `send_ticket_panel`      | Dashboard | Bot         | channel + panel config                                                    |
+| `send_application_panel` | Dashboard | Bot         | channel + form ref                                                        |
+| `send_giveaway_panel`    | Dashboard | Bot         | channel + giveaway (also re-sent for recurring tiers)                     |
+| `tickets.create`         | Dashboard | Bot         | full `Ticket`                                                             |
+| `tickets.update`         | Dashboard | Bot         | full `Ticket`                                                             |
+| `moderation.action`      | Dashboard | Bot         | `ModLog` (kick/ban/mute/warn)                                             |
+| `applications.accepted`  | Dashboard | Bot         | `{application_id, user_id, form_id, reviewer, reason, dm, grant_role_id}` |
+| `applications.rejected`  | Dashboard | Bot         | same shape, with rejection `reason`                                       |
+| `giveaways.end`          | Dashboard | Bot         | full `Giveaway`                                                           |
+| `giveaways.reroll`       | Dashboard | Bot         | full `Giveaway`                                                           |
+| `ticket.transcript`      | Bot       | Bot (self)  | enqueued via `worker.Queue` for transcript generation                     |
+| `level.card`             | Bot       | Bot (self)  | enqueued for rank-card rendering                                          |
+| `giveaway.timer`         | Bot       | Bot (self)  | enqueued for end-time scheduling                                          |
+
+Recurring giveaway scheduling lives entirely in the Dashboard (`dash_giveaway_meta`
+holds `frequency`, `recurring`, `next_run_at`); the Worker has no scheduler.
+When a recurring giveaway ends, the Dashboard re-sends `send_giveaway_panel`
+to start the next instance.
 
 ### Inbound — Bot → Worker
 
