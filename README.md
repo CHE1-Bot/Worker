@@ -116,22 +116,34 @@ three `.env` files.
 The Worker is kind-agnostic: it persists every `kind` opaquely and broadcasts
 it to subscribers. The kinds in active use across CHE1 are:
 
-| Kind                     | Sent by   | Consumed by | Payload                                                                   |
-|--------------------------|-----------|-------------|---------------------------------------------------------------------------|
-| `send_message`           | Dashboard | Bot         | channel + content                                                         |
-| `send_ticket_panel`      | Dashboard | Bot         | channel + panel config                                                    |
-| `send_application_panel` | Dashboard | Bot         | channel + form ref                                                        |
-| `send_giveaway_panel`    | Dashboard | Bot         | channel + giveaway (also re-sent for recurring tiers)                     |
-| `tickets.create`         | Dashboard | Bot         | full `Ticket`                                                             |
-| `tickets.update`         | Dashboard | Bot         | full `Ticket`                                                             |
-| `moderation.action`      | Dashboard | Bot         | `ModLog` (kick/ban/mute/warn)                                             |
-| `applications.accepted`  | Dashboard | Bot         | `{application_id, user_id, form_id, reviewer, reason, dm, grant_role_id}` |
-| `applications.rejected`  | Dashboard | Bot         | same shape, with rejection `reason`                                       |
-| `giveaways.end`          | Dashboard | Bot         | full `Giveaway`                                                           |
-| `giveaways.reroll`       | Dashboard | Bot         | full `Giveaway`                                                           |
-| `ticket.transcript`      | Bot       | Bot (self)  | enqueued via `worker.Queue` for transcript generation                     |
-| `level.card`             | Bot       | Bot (self)  | enqueued for rank-card rendering                                          |
-| `giveaway.timer`         | Bot       | Bot (self)  | enqueued for end-time scheduling                                          |
+| Kind                     | Sent by   | Consumed by | Payload                                                                       |
+|--------------------------|-----------|-------------|-------------------------------------------------------------------------------|
+| `send_message`           | Dashboard | Bot         | channel + content                                                             |
+| `send_ticket_panel`      | Dashboard | Bot         | channel + panel config (`panel_id` or `category_id`)                          |
+| `send_application_panel` | Dashboard | Bot         | channel + form ref (`form_id` or `role`)                                      |
+| `send_giveaway_panel`    | Dashboard | Bot         | giveaway panel (embed + button customization, `lock_channel` opt-in)          |
+| `tickets.create`         | Dashboard | Bot         | full `Ticket`                                                                 |
+| `tickets.update`         | Dashboard | Bot         | full `Ticket` (Bot deletes channel when `status=closed`)                      |
+| `tickets.claim`          | Dashboard | Bot         | `Ticket` with `claimed_by`/`claimed_by_name`                                  |
+| `tickets.unclaim`        | Dashboard | Bot         | `Ticket` released back to the queue                                           |
+| `moderation.action`      | Dashboard | Bot         | `ModLog` — unified dispatch (action ∈ kick/ban/unban/mute/unmute/warn)        |
+| `moderation.kick`        | Dashboard | Bot         | `ModLog` — split form, same fields                                            |
+| `moderation.ban`         | Dashboard | Bot         | `ModLog`                                                                      |
+| `moderation.unban`       | Dashboard | Bot         | `ModLog`                                                                      |
+| `moderation.mute`        | Dashboard | Bot         | `ModLog` (`duration_sec` honored, defaults to 60s)                            |
+| `moderation.unmute`      | Dashboard | Bot         | `ModLog`                                                                      |
+| `moderation.warn`        | Dashboard | Bot         | `ModLog` (Dashboard records; no Discord-side action)                          |
+| `applications.accepted`  | Dashboard | Bot         | `{application_id, user_id, form_id, reviewer, reason, dm, grant_role_id}`     |
+| `applications.rejected`  | Dashboard | Bot         | same shape, with rejection `reason`                                           |
+| `giveaways.end`          | Dashboard | Bot         | full `Giveaway` (Bot unlocks channel if `lock_channel` was set)               |
+| `giveaways.reroll`       | Dashboard | Bot         | full `Giveaway`                                                               |
+| `giveaways.delete`       | Dashboard | Bot         | `Giveaway` — cancel without drawing winners, panel → "Cancelled" state        |
+| `giveaways.create`       | Bot       | Worker      | from `/gstart` / `/gcreate` modal — persisted + panel deployed                |
+| `giveaways.enter`        | Bot       | Worker      | `{giveaway_id, guild_id, channel_id, user_id, username}` — live count fan-out |
+| `giveaways.leave`        | Bot       | Worker      | `{giveaway_id, guild_id, user_id, username}` — live count fan-out             |
+| `ticket.transcript`      | Bot       | Bot (self)  | enqueued via `worker.Queue` for transcript generation                         |
+| `level.card`             | Bot       | Bot (self)  | enqueued for rank-card rendering                                              |
+| `giveaway.timer`         | Bot       | Bot (self)  | enqueued for end-time scheduling                                              |
 
 Recurring giveaway scheduling lives entirely in the Dashboard (`dash_giveaway_meta`
 holds `frequency`, `recurring`, `next_run_at`); the Worker has no scheduler.
@@ -158,10 +170,18 @@ to start the next instance.
 ### Shared Postgres schema
 
 Whichever service boots first creates the shared tables (`tickets`,
-`user_levels`, `mod_logs`, `applications`, `application_forms`, `giveaways`)
-plus the Worker-owned `tasks` table. All migrations are idempotent
-(`CREATE TABLE IF NOT EXISTS`), so boot order does not matter. The shared
-schema mirrors [`CHE1-Bot/Bot/schema.sql`](https://github.com/CHE1-Bot/Bot/blob/main/schema.sql).
+`user_levels`, `mod_logs`, `applications`, `application_forms`, `giveaways`,
+`giveaway_entries`) plus the Worker-owned `tasks` table. All migrations are
+idempotent — `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE … ADD COLUMN IF
+NOT EXISTS` for new columns on existing deployments, so boot order doesn't
+matter and re-running on a populated DB is safe. The shared schema mirrors
+[`CHE1-Bot/Bot/schema.sql`](https://github.com/CHE1-Bot/Bot/blob/main/schema.sql).
+
+The `giveaway_entries` table is written by the Bot when a user presses the
+Enter/Leave button on a button-based giveaway, and read by the Bot when
+drawing winners (see `giveaways.end` in the catalog above). `giveaways`
+gained a `lock_channel` column so the Bot can unlock the channel when the
+giveaway ends.
 
 ### Port collision in local dev
 

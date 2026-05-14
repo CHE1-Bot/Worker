@@ -87,15 +87,27 @@ CREATE TABLE IF NOT EXISTS application_forms (
 );
 
 CREATE TABLE IF NOT EXISTS giveaways (
-	id         BIGSERIAL PRIMARY KEY,
-	guild_id   TEXT NOT NULL,
-	channel_id TEXT NOT NULL,
-	message_id TEXT NOT NULL,
-	prize      TEXT NOT NULL,
-	winners    TEXT[],
-	ends_at    TIMESTAMPTZ NOT NULL,
-	status     TEXT NOT NULL
+	id           BIGSERIAL PRIMARY KEY,
+	guild_id     TEXT NOT NULL,
+	channel_id   TEXT NOT NULL,
+	message_id   TEXT NOT NULL,
+	prize        TEXT NOT NULL,
+	winners      TEXT[],
+	ends_at      TIMESTAMPTZ NOT NULL,
+	status       TEXT NOT NULL,
+	lock_channel BOOLEAN NOT NULL DEFAULT FALSE
 );
+ALTER TABLE giveaways ADD COLUMN IF NOT EXISTS lock_channel BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Per-user entries for button-based giveaways. Bot writes on Enter/Leave;
+-- Worker reads when drawing winners. Added in CHE1-Bot/Bot 88efbc2.
+CREATE TABLE IF NOT EXISTS giveaway_entries (
+	giveaway_id BIGINT NOT NULL,
+	user_id     TEXT NOT NULL,
+	entered_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	PRIMARY KEY (giveaway_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS giveaway_entries_user_idx ON giveaway_entries (user_id);
 `
 
 func (r *TaskRepo) Migrate(ctx context.Context) error {
